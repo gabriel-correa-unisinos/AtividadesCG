@@ -48,7 +48,7 @@ set(EXERCISES
     TriangleTex
     SpherePhong
     Modulo3
-   
+    Vivencial2
 )
 
 add_compile_options(-Wno-pragmas)
