@@ -48,7 +48,8 @@ set(EXERCISES
     TriangleTex
     SpherePhong
     Modulo3
-   
+    Modulo5
+    #Vivencial2
 )
 
 add_compile_options(-Wno-pragmas)
@@ -75,7 +76,7 @@ endif()
 # Cria os executáveis
 foreach(EXERCISE ${EXERCISES})
 
-    if(${EXERCISE} STREQUAL "Modulo3")
+    if(${EXERCISE} STREQUAL "Modulo3" OR ${EXERCISE} STREQUAL "Modulo5")
         add_executable(${EXERCISE}
             src/${EXERCISE}.cpp
             src/utils/LoadSimpleOBJ.cpp
