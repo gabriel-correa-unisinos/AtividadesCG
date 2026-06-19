@@ -10,8 +10,6 @@
 #include <string>
 #include <assert.h>
 
-using namespace std;
-
 // GLAD
 #include <glad/glad.h>
 
@@ -28,6 +26,36 @@ using namespace std;
 #include "utils/SceneTypes.hpp"
 #include "utils/LoadScene.hpp"
 
+// ==================== Constants ====================
+const GLuint WINDOW_WIDTH = 1920;
+const GLuint WINDOW_HEIGHT = 1024;
+
+const float CAMERA_DEFAULT_SPEED = 0.3f;
+const float OBJECT_SCALE_STEP = 0.05f;
+const float OBJECT_SCALE_MIN = 0.05f;
+const float LIGHT_INTENSITY_STEP = 0.1f;
+const float OBJECT_POSITION_STEP = 0.1f;
+const float LIGHT_POSITION_STEP = 0.1f;
+const float OBJECT_ROTATION_STEP = 5.0f;
+
+const float VIEWPORT_FOV = 45.0f;
+const float VIEWPORT_NEAR = 0.1f;
+const float VIEWPORT_FAR = 100.0f;
+
+const float ATTENUATION_Kc = 1.0f;
+const float ATTENUATION_Kl = 0.09f;
+const float ATTENUATION_Kq = 0.032f;
+
+// ==================== Enums ====================
+enum LightIndex
+{
+    KEY_LIGHT = 0,
+    FILL_LIGHT = 1,
+    BACK_LIGHT = 2,
+    NUM_LIGHTS = 3
+};
+
+// ==================== Structures ====================
 struct Trajectory
 {
     std::vector<glm::vec3> controlPoints;
@@ -44,33 +72,26 @@ struct Light
     bool enabled;
 };
 
-enum
-{
-    KEY_LIGHT = 0,
-    FILL_LIGHT = 1,
-    BACK_LIGHT = 2
-};
+// ==================== Global State ====================
+int g_selectedObjectIndex = 0;
+std::vector<SceneObject> *g_sceneObjectsPtr = nullptr;
+GLuint g_shaderProgram = 0;
+int g_selectedLight = KEY_LIGHT;
 
-int selectedObjectIndex = 0;
-std::vector<SceneObject> *sceneObjectsPtr = nullptr;
-GLuint Shader_programm = 0;
-int selectedLight = KEY_LIGHT;
-
-Light lights[3] = {
+Light g_lights[NUM_LIGHTS] = {
     {glm::vec3(0.0f, 3.0f, 3.0f), glm::vec3(1.0f), 1.0f, true},
     {glm::vec3(3.0f, 2.0f, 0.0f), glm::vec3(1.0f), 0.5f, false},
-    {glm::vec3(-3.0f, 2.0f, 0.0f), glm::vec3(1.0f), 0.5f, false}};
+    {glm::vec3(-3.0f, 2.0f, 0.0f), glm::vec3(1.0f), 0.5f, false}
+};
 
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+glm::vec3 g_cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
+glm::vec3 g_cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
+glm::vec3 g_cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-float cameraSpeed = 0.3f;
+float g_cameraSpeed = CAMERA_DEFAULT_SPEED;
 
+// ==================== Function Prototypes ====================
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode);
-
-// Protótipos das funções
-
 void inicializaShaders();
 void drawBoundingBox(
     const BoundingBox &bbox,
@@ -79,34 +100,107 @@ void drawBoundingBox(
     GLuint shaderID);
 void updateObjectAnimation(SceneObject &object, float time);
 
-// Dimensões da janela (pode ser alterado em tempo de execução)
-const GLuint WIDTH = 1920,
-             HEIGHT = 1024;
+// ==================== Helper Functions ====================
 
-// Código fonte do Vertex Shader (em GLSL): ainda hardcoded
+// Set up all lighting uniforms for the current frame
+void setupLightingUniforms(GLuint shaderID)
+{
+    std::glUniform1f(std::glGetUniformLocation(shaderID, "Kc"), ATTENUATION_Kc);
+    std::glUniform1f(std::glGetUniformLocation(shaderID, "Kl"), ATTENUATION_Kl);
+    std::glUniform1f(std::glGetUniformLocation(shaderID, "Kq"), ATTENUATION_Kq);
+
+    for (int i = 0; i < NUM_LIGHTS; ++i)
+    {
+        std::string idx = std::to_string(i);
+
+        std::glUniform3fv(
+            std::glGetUniformLocation(shaderID, ("lights[" + idx + "].position").c_str()),
+            1,
+            glm::value_ptr(g_lights[i].position));
+
+        std::glUniform3fv(
+            std::glGetUniformLocation(shaderID, ("lights[" + idx + "].color").c_str()),
+            1,
+            glm::value_ptr(g_lights[i].color));
+
+        std::glUniform1f(
+            std::glGetUniformLocation(shaderID, ("lights[" + idx + "].intensity").c_str()),
+            g_lights[i].intensity);
+
+        std::glUniform1i(
+            std::glGetUniformLocation(shaderID, ("lights[" + idx + "].enabled").c_str()),
+            g_lights[i].enabled);
+    }
+}
+
+// Set up material uniforms for a submesh
+void setupMaterialUniforms(GLuint shaderID, const Submesh &submesh)
+{
+    std::glUniform1f(
+        std::glGetUniformLocation(shaderID, "Ka"),
+        submesh.material.Ka.x);
+
+    std::glUniform1f(
+        std::glGetUniformLocation(shaderID, "Kd"),
+        submesh.material.Kd.x);
+
+    std::glUniform1f(
+        std::glGetUniformLocation(shaderID, "Ks"),
+        submesh.material.Ks.x);
+
+    std::glUniform1f(
+        std::glGetUniformLocation(shaderID, "shininess"),
+        submesh.material.shininess);
+
+    std::glUniform3fv(
+        std::glGetUniformLocation(shaderID, "objectColor"),
+        1,
+        glm::value_ptr(submesh.material.Kd));
+
+    std::glUniform1i(
+        std::glGetUniformLocation(shaderID, "useTexture"),
+        submesh.material.textureId != 0);
+
+    std::glActiveTexture(GL_TEXTURE0);
+    std::glBindTexture(GL_TEXTURE_2D, submesh.material.textureId);
+
+    std::glUniform1i(
+        std::glGetUniformLocation(shaderID, "diffuseTexture"),
+        0);
+}
+
+// Render a single submesh
+void renderSubmesh(const Submesh &submesh)
+{
+    std::glBindVertexArray(submesh.VAO);
+    std::glDrawArrays(
+        GL_TRIANGLES,
+        0,
+        submesh.nVertices);
+}
 
 // Função MAIN
 int main()
 {
     // Inicialização da GLFW
     glfwInit();
-    GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "Ola 3D -- Gabriel Corrêa!", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Ola 3D -- Gabriel Corrêa!", nullptr, nullptr);
     glfwMakeContextCurrent(window);
 
     // Fazendo o registro da função de callback para a janela GLFW
     glfwSetKeyCallback(window, key_callback);
 
-    // GLAD: carrega todos os ponteiros d funções da OpenGL
+    // GLAD: carrega todos os ponteiros de funções da OpenGL
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
-        std::cout << "Failed to initialize GLAD" << std::endl;
+        std::cerr << "Failed to initialize GLAD" << std::endl;
     }
 
     // Obtendo as informações de versão
-    const GLubyte *renderer = glGetString(GL_RENDERER); /* get renderer string */
-    const GLubyte *version = glGetString(GL_VERSION);   /* version as a string */
-    cout << "Renderer: " << renderer << endl;
-    cout << "OpenGL version supported " << version << endl;
+    const GLubyte *renderer = glGetString(GL_RENDERER);
+    const GLubyte *version = glGetString(GL_VERSION);
+    std::cout << "Renderer: " << renderer << std::endl;
+    std::cout << "OpenGL version supported " << version << std::endl;
 
     // Definindo as dimensões da viewport com as mesmas dimensões da janela da aplicação
     int width, height;
@@ -114,18 +208,14 @@ int main()
     glViewport(0, 0, width, height);
 
     // Compilando e buildando o programa de shader
-
-    // Gerando um buffer simples, com a geometria de um triângulo
-
     inicializaShaders();
 
-    GLuint shaderID = Shader_programm;
+    GLuint shaderID = g_shaderProgram;
     glUseProgram(shaderID);
 
-    glm::mat4 model = glm::mat4(1); // matriz identidade;
+    glm::mat4 model = glm::mat4(1);
     GLint modelLoc = glGetUniformLocation(shaderID, "model");
-    //
-    model = glm::rotate(model, /*(GLfloat)glfwGetTime()*/ glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    model = glm::rotate(model, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
     GLuint viewLoc = glGetUniformLocation(shaderID, "view");
@@ -136,18 +226,18 @@ int main()
     SceneData scene = loadScene("../scene.json");
 
     std::vector<SceneObject> sceneObjects = scene.objects;
-    sceneObjectsPtr = &sceneObjects;
+    g_sceneObjectsPtr = &sceneObjects;
 
-    cameraPos = scene.camera.position;
-    cameraFront = scene.camera.front;
-    cameraUp = scene.camera.up;
+    g_cameraPos = scene.camera.position;
+    g_cameraFront = scene.camera.front;
+    g_cameraUp = scene.camera.up;
 
-    for (int i = 0; i < scene.lights.size() && i < 3; i++)
+    for (size_t i = 0; i < scene.lights.size() && i < NUM_LIGHTS; ++i)
     {
-        lights[i].position = scene.lights[i].position;
-        lights[i].color = scene.lights[i].color;
-        lights[i].intensity = scene.lights[i].intensity;
-        lights[i].enabled = scene.lights[i].enabled;
+        g_lights[i].position = scene.lights[i].position;
+        g_lights[i].color = scene.lights[i].color;
+        g_lights[i].intensity = scene.lights[i].intensity;
+        g_lights[i].enabled = scene.lights[i].enabled;
     }
 
     // Loop da aplicação - "game loop"
@@ -157,22 +247,22 @@ int main()
         glfwPollEvents();
 
         // Limpa o buffer de cor
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // cor de fundo
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glLineWidth(10);
         glPointSize(20);
 
         glm::mat4 view = glm::lookAt(
-            cameraPos,
-            cameraPos + cameraFront,
-            cameraUp);
+            g_cameraPos,
+            g_cameraPos + g_cameraFront,
+            g_cameraUp);
 
         glm::mat4 projection = glm::perspective(
-            glm::radians(45.0f),
-            (float)WIDTH / HEIGHT,
-            0.1f,
-            100.0f);
+            glm::radians(VIEWPORT_FOV),
+            (float)WINDOW_WIDTH / WINDOW_HEIGHT,
+            VIEWPORT_NEAR,
+            VIEWPORT_FAR);
 
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
@@ -180,46 +270,19 @@ int main()
         glUniform3fv(
             glGetUniformLocation(shaderID, "viewPos"),
             1,
-            glm::value_ptr(cameraPos));
+            glm::value_ptr(g_cameraPos));
 
-        glUniform1f(glGetUniformLocation(shaderID, "Kc"), 1.0f);
-        glUniform1f(glGetUniformLocation(shaderID, "Kl"), 0.09f);
-        glUniform1f(glGetUniformLocation(shaderID, "Kq"), 0.032f);
+        setupLightingUniforms(shaderID);
 
-        for (int i = 0; i < 3; i++)
-        {
-            std::string idx = std::to_string(i);
-
-            glUniform3fv(
-                glGetUniformLocation(shaderID, ("lights[" + idx + "].position").c_str()),
-                1,
-                glm::value_ptr(lights[i].position));
-
-            glUniform3fv(
-                glGetUniformLocation(shaderID, ("lights[" + idx + "].color").c_str()),
-                1,
-                glm::value_ptr(lights[i].color));
-
-            glUniform1f(
-                glGetUniformLocation(shaderID, ("lights[" + idx + "].intensity").c_str()),
-                lights[i].intensity);
-
-            glUniform1i(
-                glGetUniformLocation(shaderID, ("lights[" + idx + "].enabled").c_str()),
-                lights[i].enabled);
-        }
-
-        for (int i = 0; i < sceneObjects.size(); i++)
+        for (size_t i = 0; i < sceneObjects.size(); ++i)
         {
             SceneObject &object = sceneObjects[i];
-            bool isSelected = i == selectedObjectIndex;
+            bool isSelected = i == g_selectedObjectIndex;
 
             float time = glfwGetTime();
-
             updateObjectAnimation(object, time);
 
             glm::mat4 model = glm::mat4(1.0f);
-
             model = glm::translate(model, object.position);
             model = glm::rotate(model, glm::radians(object.rotation.x), glm::vec3(1, 0, 0));
             model = glm::rotate(model, glm::radians(object.rotation.y), glm::vec3(0, 1, 0));
@@ -228,47 +291,11 @@ int main()
 
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-            // desenho normal
+            // Render all submeshes for this object
             for (auto &submesh : object.mesh.submeshes)
             {
-                glUniform1f(
-                    glGetUniformLocation(shaderID, "Ka"),
-                    submesh.material.Ka.x);
-
-                glUniform1f(
-                    glGetUniformLocation(shaderID, "Kd"),
-                    submesh.material.Kd.x);
-
-                glUniform1f(
-                    glGetUniformLocation(shaderID, "Ks"),
-                    submesh.material.Ks.x);
-
-                glUniform1f(
-                    glGetUniformLocation(shaderID, "shininess"),
-                    submesh.material.shininess);
-
-                glUniform3fv(
-                    glGetUniformLocation(shaderID, "objectColor"),
-                    1,
-                    glm::value_ptr(submesh.material.Kd));
-
-                glUniform1i(
-                    glGetUniformLocation(shaderID, "useTexture"),
-                    submesh.material.textureId != 0);
-
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, submesh.material.textureId);
-
-                glUniform1i(
-                    glGetUniformLocation(shaderID, "diffuseTexture"),
-                    0);
-
-                glBindVertexArray(submesh.VAO);
-
-                glDrawArrays(
-                    GL_TRIANGLES,
-                    0,
-                    submesh.nVertices);
+                setupMaterialUniforms(shaderID, submesh);
+                renderSubmesh(submesh);
             }
 
             if (isSelected)
@@ -281,8 +308,7 @@ int main()
         // Troca os buffers da tela
         glfwSwapBuffers(window);
     }
-    // Pede pra OpenGL desalocar os buffers
-    // glDeleteVertexArrays(1, &mesh.VAO);
+
     // Finaliza a execução da GLFW, limpando os recursos alocados por ela
     glfwTerminate();
     return 0;
@@ -299,182 +325,127 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     // ================= SELEÇÃO DE OBJETO =================
     if (key == GLFW_KEY_TAB && action == GLFW_PRESS)
     {
-        if (sceneObjectsPtr && !sceneObjectsPtr->empty())
+        if (g_sceneObjectsPtr && !g_sceneObjectsPtr->empty())
         {
-            selectedObjectIndex =
-                (selectedObjectIndex + 1) % sceneObjectsPtr->size();
+            g_selectedObjectIndex =
+                (g_selectedObjectIndex + 1) % g_sceneObjectsPtr->size();
 
             std::cout << "Objeto selecionado: "
-                      << selectedObjectIndex
+                      << g_selectedObjectIndex
                       << std::endl;
         }
     }
 
     // ================= SELEÇÃO DE LUZ =================
     if (key == GLFW_KEY_1 && action == GLFW_PRESS)
-        selectedLight = KEY_LIGHT;
+        g_selectedLight = KEY_LIGHT;
 
     if (key == GLFW_KEY_2 && action == GLFW_PRESS)
-        selectedLight = FILL_LIGHT;
+        g_selectedLight = FILL_LIGHT;
 
     if (key == GLFW_KEY_3 && action == GLFW_PRESS)
-        selectedLight = BACK_LIGHT;
+        g_selectedLight = BACK_LIGHT;
 
     if (key == GLFW_KEY_L && action == GLFW_PRESS)
-        lights[selectedLight].enabled = !lights[selectedLight].enabled;
+        g_lights[g_selectedLight].enabled = !g_lights[g_selectedLight].enabled;
 
     if (!(action == GLFW_PRESS || action == GLFW_REPEAT))
         return;
 
     // ================= CÂMERA =================
     if (key == GLFW_KEY_W)
-        cameraPos += cameraSpeed * cameraFront;
+        g_cameraPos += g_cameraSpeed * g_cameraFront;
 
     if (key == GLFW_KEY_S)
-        cameraPos -= cameraSpeed * cameraFront;
+        g_cameraPos -= g_cameraSpeed * g_cameraFront;
 
     if (key == GLFW_KEY_A)
-        cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+        g_cameraPos -= glm::normalize(glm::cross(g_cameraFront, g_cameraUp)) * g_cameraSpeed;
 
     if (key == GLFW_KEY_D)
-        cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+        g_cameraPos += glm::normalize(glm::cross(g_cameraFront, g_cameraUp)) * g_cameraSpeed;
 
     if (key == GLFW_KEY_Q)
-        cameraPos.y += cameraSpeed;
+        g_cameraPos.y += g_cameraSpeed;
 
     if (key == GLFW_KEY_E)
-        cameraPos.y -= cameraSpeed;
+        g_cameraPos.y -= g_cameraSpeed;
 
     // ================= LUZ SELECIONADA =================
     if (key == GLFW_KEY_EQUAL)
-        lights[selectedLight].intensity += 0.1f;
+        g_lights[g_selectedLight].intensity += LIGHT_INTENSITY_STEP;
 
     if (key == GLFW_KEY_MINUS)
-        lights[selectedLight].intensity -= 0.1f;
+        g_lights[g_selectedLight].intensity -= LIGHT_INTENSITY_STEP;
 
-    if (lights[selectedLight].intensity < 0.0f)
-        lights[selectedLight].intensity = 0.0f;
+    if (g_lights[g_selectedLight].intensity < 0.0f)
+        g_lights[g_selectedLight].intensity = 0.0f;
 
     if (key == GLFW_KEY_UP)
-        lights[selectedLight].position.y += 0.1f;
+        g_lights[g_selectedLight].position.y += LIGHT_POSITION_STEP;
 
     if (key == GLFW_KEY_DOWN)
-        lights[selectedLight].position.y -= 0.1f;
+        g_lights[g_selectedLight].position.y -= LIGHT_POSITION_STEP;
 
     if (key == GLFW_KEY_LEFT)
-        lights[selectedLight].position.x -= 0.1f;
+        g_lights[g_selectedLight].position.x -= LIGHT_POSITION_STEP;
 
     if (key == GLFW_KEY_RIGHT)
-        lights[selectedLight].position.x += 0.1f;
+        g_lights[g_selectedLight].position.x += LIGHT_POSITION_STEP;
 
     if (key == GLFW_KEY_PAGE_UP)
-        lights[selectedLight].position.z += 0.1f;
+        g_lights[g_selectedLight].position.z += LIGHT_POSITION_STEP;
 
     if (key == GLFW_KEY_PAGE_DOWN)
-        lights[selectedLight].position.z -= 0.1f;
+        g_lights[g_selectedLight].position.z -= LIGHT_POSITION_STEP;
 
     // ================= OBJETO SELECIONADO =================
-    if (sceneObjectsPtr && !sceneObjectsPtr->empty())
+    if (g_sceneObjectsPtr && !g_sceneObjectsPtr->empty())
     {
-        SceneObject &selectedObject =
-            (*sceneObjectsPtr)[selectedObjectIndex];
+        SceneObject &selectedObject = (*g_sceneObjectsPtr)[g_selectedObjectIndex];
 
-        // translação do objeto
+        // Translação do objeto
         if (key == GLFW_KEY_I)
-            selectedObject.position.y += 0.1f;
+            selectedObject.position.y += OBJECT_POSITION_STEP;
 
         if (key == GLFW_KEY_K)
-            selectedObject.position.y -= 0.1f;
+            selectedObject.position.y -= OBJECT_POSITION_STEP;
 
         if (key == GLFW_KEY_J)
-            selectedObject.position.x -= 0.1f;
+            selectedObject.position.x -= OBJECT_POSITION_STEP;
 
         if (key == GLFW_KEY_U)
-            selectedObject.position.x += 0.1f;
+            selectedObject.position.x += OBJECT_POSITION_STEP;
 
         if (key == GLFW_KEY_O)
-            selectedObject.position.z += 0.1f;
+            selectedObject.position.z += OBJECT_POSITION_STEP;
 
         if (key == GLFW_KEY_P)
-            selectedObject.position.z -= 0.1f;
+            selectedObject.position.z -= OBJECT_POSITION_STEP;
 
-        // escala uniforme
+        // Escala uniforme
         if (key == GLFW_KEY_RIGHT_BRACKET)
-            selectedObject.scale += glm::vec3(0.05f);
+            selectedObject.scale += glm::vec3(OBJECT_SCALE_STEP);
 
         if (key == GLFW_KEY_LEFT_BRACKET)
-            selectedObject.scale -= glm::vec3(0.05f);
+            selectedObject.scale -= glm::vec3(OBJECT_SCALE_STEP);
 
-        if (selectedObject.scale.x < 0.05f)
-            selectedObject.scale = glm::vec3(0.05f);
+        if (selectedObject.scale.x < OBJECT_SCALE_MIN)
+            selectedObject.scale = glm::vec3(OBJECT_SCALE_MIN);
 
-        // rotação do objeto
+        // Rotação do objeto
         if (key == GLFW_KEY_X)
-            selectedObject.rotation.x += 5.0f;
+            selectedObject.rotation.x += OBJECT_ROTATION_STEP;
 
         if (key == GLFW_KEY_Y)
-            selectedObject.rotation.y += 5.0f;
+            selectedObject.rotation.y += OBJECT_ROTATION_STEP;
 
         if (key == GLFW_KEY_Z)
-            selectedObject.rotation.z += 5.0f;
+            selectedObject.rotation.z += OBJECT_ROTATION_STEP;
     }
 }
 
-// Esta função está basntante hardcoded - objetivo é compilar e "buildar" um programa de
-//  shader simples e único neste exemplo de código
-//  O código fonte do vertex e fragment shader está nos arrays vertexShaderSource e
-//  fragmentShader source no iniçio deste arquivo
-//  A função retorna o identificador do programa de shader
-
-// Esta função está bastante harcoded - objetivo é criar os buffers que armazenam a
-// geometria de um triângulo
-// Apenas atributo coordenada nos vértices
-// 1 VBO com as coordenadas, VAO com apenas 1 ponteiro para atributo
-// A função retorna o identificador do VAO
-
-void drawTrajectory(
-    const std::vector<glm::vec3> &points,
-    GLint modelLoc,
-    const glm::vec3 &globalPosition)
-{
-    if (points.size() < 2)
-        return;
-
-    GLuint vao, vbo;
-
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        points.size() * sizeof(glm::vec3),
-        points.data(),
-        GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void *)0);
-    glEnableVertexAttribArray(0);
-
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, globalPosition);
-
-    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
-    glLineWidth(3.0f);
-    glDrawArrays(GL_LINE_LOOP, 0, points.size());
-
-    glPointSize(8.0f);
-    glDrawArrays(GL_POINTS, 0, points.size());
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-
-    glDeleteBuffers(1, &vbo);
-    glDeleteVertexArrays(1, &vao);
-}
-
+// Compila um shader individual
 GLuint compilaShader(const char *source, GLenum type)
 {
     GLuint shader = glCreateShader(type);
@@ -646,10 +617,10 @@ void main()
     GLuint vs = compilaShader(vertex_shader, GL_VERTEX_SHADER);
     GLuint fs = compilaShader(fragment_shader, GL_FRAGMENT_SHADER);
 
-    Shader_programm = glCreateProgram();
-    glAttachShader(Shader_programm, vs);
-    glAttachShader(Shader_programm, fs);
-    glLinkProgram(Shader_programm);
+    g_shaderProgram = glCreateProgram();
+    glAttachShader(g_shaderProgram, vs);
+    glAttachShader(g_shaderProgram, fs);
+    glLinkProgram(g_shaderProgram);
 
     glDeleteShader(vs);
     glDeleteShader(fs);
@@ -661,8 +632,8 @@ void drawBoundingBox(
     GLint modelLoc,
     GLuint shaderID)
 {
-    glm::vec3 min = bbox.min;
-    glm::vec3 max = bbox.max;
+    const glm::vec3 min = bbox.min;
+    const glm::vec3 max = bbox.max;
 
     glm::vec3 vertices[] = {
         {min.x, min.y, min.z},
@@ -739,15 +710,15 @@ void updateObjectAnimation(SceneObject &object, float time)
 
     if (object.animation.type == "circle")
     {
-        float angle = time * object.animation.speed;
+        const float angle = time * object.animation.speed;
 
         object.position.x =
             object.animation.center.x +
-            cos(angle) * object.animation.radius;
+            std::cos(angle) * object.animation.radius;
 
         object.position.z =
             object.animation.center.z +
-            sin(angle) * object.animation.radius;
+            std::sin(angle) * object.animation.radius;
 
         object.position.y =
             object.animation.center.y;
