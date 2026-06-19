@@ -49,6 +49,7 @@ set(EXERCISES
     SpherePhong
     Modulo3
     Modulo5
+    GrauB
     #Vivencial2
 )
 
@@ -76,11 +77,13 @@ endif()
 # Cria os executáveis
 foreach(EXERCISE ${EXERCISES})
 
-    if(${EXERCISE} STREQUAL "Modulo3" OR ${EXERCISE} STREQUAL "Modulo5")
+    if(${EXERCISE} STREQUAL "Modulo3" OR ${EXERCISE} STREQUAL "Modulo5" OR ${EXERCISE} STREQUAL "GrauB")
         add_executable(${EXERCISE}
             src/${EXERCISE}.cpp
             src/utils/LoadSimpleOBJ.cpp
             src/utils/LoadTexture.cpp
+            src/utils/LoadMTL.cpp
+            src/utils/LoadScene.cpp
             ${GLAD_C_FILE}
         )
     else()

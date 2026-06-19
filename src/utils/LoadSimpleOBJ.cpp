@@ -43,13 +43,21 @@ using namespace std;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-struct Mesh
+#include <map>
+#include "LoadMTL.hpp"
+#include "ModelTypes.hpp"
+#include <cfloat>
+#include <algorithm>
+
+std::string getBasePath(const std::string &filePath)
 {
-    GLuint VAO;
-    GLuint VBO;
-    GLuint textureId;
-    int nVertices;
-};
+    size_t pos = filePath.find_last_of("/\\");
+
+    if (pos == std::string::npos)
+        return "";
+
+    return filePath.substr(0, pos + 1);
+}
 
 Mesh loadSimpleOBJ(string filePATH)
 {
@@ -57,8 +65,11 @@ Mesh loadSimpleOBJ(string filePATH)
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> texCoords;
     std::vector<glm::vec3> normals;
-    std::vector<GLfloat> vBuffer;
-    glm::vec3 color = glm::vec3(1.0, 0.0, 0.0);
+    std::map<std::string, Material> materials;
+    std::map<std::string, std::vector<GLfloat>> buffersByMaterial;
+
+    std::string currentMaterialName = "default";
+    std::string basePath = getBasePath(filePATH);
 
     std::ifstream arqEntrada(filePATH.c_str());
     if (!arqEntrada.is_open())
@@ -74,7 +85,23 @@ Mesh loadSimpleOBJ(string filePATH)
         std::string word;
         ssline >> word;
 
-        if (word == "v")
+        if (word.empty() || word[0] == '#')
+            continue;
+
+        if (word == "mtllib")
+        {
+            std::string mtlFile;
+            ssline >> mtlFile;
+
+            std::string mtlPath = basePath + mtlFile;
+
+            materials = loadMTL(mtlPath, basePath);
+        }
+        else if (word == "usemtl")
+        {
+            ssline >> currentMaterialName;
+        }
+        else if (word == "v")
         {
             glm::vec3 vertice;
             ssline >> vertice.x >> vertice.y >> vertice.z;
@@ -130,6 +157,8 @@ Mesh loadSimpleOBJ(string filePATH)
                 if (ti >= 0 && ti < texCoords.size())
                     texCoord = texCoords[ti];
 
+                auto &vBuffer = buffersByMaterial[currentMaterialName];
+
                 vBuffer.push_back(pos.x);
                 vBuffer.push_back(pos.y);
                 vBuffer.push_back(pos.z);
@@ -146,53 +175,92 @@ Mesh loadSimpleOBJ(string filePATH)
 
     arqEntrada.close();
 
-    std::cout << "Gerando o buffer de geometria..." << std::endl;
-    GLuint VBO, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
+    if (!vertices.empty())
+    {
+        BoundingBox bbox;
 
-    glBindVertexArray(VAO);
+        bbox.min = glm::vec3(FLT_MAX);
+        bbox.max = glm::vec3(-FLT_MAX);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        for (auto &v : vertices)
+        {
+            bbox.min.x = std::min(bbox.min.x, v.x);
+            bbox.min.y = std::min(bbox.min.y, v.y);
+            bbox.min.z = std::min(bbox.min.z, v.z);
 
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        vBuffer.size() * sizeof(GLfloat),
-        vBuffer.data(),
-        GL_STATIC_DRAW);
+            bbox.max.x = std::max(bbox.max.x, v.x);
+            bbox.max.y = std::max(bbox.max.y, v.y);
+            bbox.max.z = std::max(bbox.max.z, v.z);
+        }
 
-    glVertexAttribPointer(
-        0,
-        3,
-        GL_FLOAT,
-        GL_FALSE,
-        8 * sizeof(GLfloat),
-        (GLvoid *)0);
-    glEnableVertexAttribArray(0);
+        mesh.bbox = bbox;
+    }
 
-    glVertexAttribPointer(
-        1,
-        3,
-        GL_FLOAT,
-        GL_FALSE,
-        8 * sizeof(GLfloat),
-        (GLvoid *)(3 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(1);
+    for (auto &[materialName, vBuffer] : buffersByMaterial)
+    {
+        if (vBuffer.empty())
+            continue;
 
-    glVertexAttribPointer(
-        2,
-        2,
-        GL_FLOAT,
-        GL_FALSE,
-        8 * sizeof(GLfloat),
-        (GLvoid *)(6 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(2);
+        GLuint VBO, VAO;
 
-    glBindVertexArray(0);
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
 
-    mesh.VAO = VAO;
-    mesh.VBO = VBO;
-    mesh.nVertices = vBuffer.size() / 8;
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            vBuffer.size() * sizeof(GLfloat),
+            vBuffer.data(),
+            GL_STATIC_DRAW);
+
+        glVertexAttribPointer(
+            0,
+            3,
+            GL_FLOAT,
+            GL_FALSE,
+            8 * sizeof(GLfloat),
+            (GLvoid *)0);
+        glEnableVertexAttribArray(0);
+
+        glVertexAttribPointer(
+            1,
+            3,
+            GL_FLOAT,
+            GL_FALSE,
+            8 * sizeof(GLfloat),
+            (GLvoid *)(3 * sizeof(GLfloat)));
+        glEnableVertexAttribArray(1);
+
+        glVertexAttribPointer(
+            2,
+            2,
+            GL_FLOAT,
+            GL_FALSE,
+            8 * sizeof(GLfloat),
+            (GLvoid *)(6 * sizeof(GLfloat)));
+        glEnableVertexAttribArray(2);
+
+        glBindVertexArray(0);
+
+        SubMesh submesh;
+
+        submesh.VAO = VAO;
+        submesh.VBO = VBO;
+        submesh.nVertices = vBuffer.size() / 8;
+
+        if (materials.find(materialName) != materials.end())
+        {
+            submesh.material = materials[materialName];
+        }
+        else
+        {
+            submesh.material.name = materialName;
+        }
+
+        mesh.submeshes.push_back(submesh);
+    }
 
     return mesh;
 }

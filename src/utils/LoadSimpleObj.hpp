@@ -3,14 +3,7 @@
 
 #include <string>
 #include <glad/glad.h>
-
-struct Mesh
-{
-    GLuint VAO;
-    GLuint VBO;
-    GLuint textureID;
-    int nVertices;
-};
+#include "ModelTypes.hpp"
 
 Mesh loadSimpleOBJ(std::string filePath);
 

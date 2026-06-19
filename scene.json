@@ -1,0 +1,51 @@
+{
+  "camera": {
+    "position": [0, 0, 5],
+    "front": [0, 0, -1],
+    "up": [0, 1, 0],
+    "fov": 45,
+    "near": 0.1,
+    "far": 100
+  },
+  "lights": [
+  {
+    "position": [0, 3, 3],
+    "color": [1, 1, 1],
+    "intensity": 1.0,
+    "enabled": true
+  },
+  {
+    "position": [3, 2, 0],
+    "color": [1, 1, 1],
+    "intensity": 0.6,
+    "enabled": false
+  },
+  {
+    "position": [-3, 2, 0],
+    "color": [1, 1, 1],
+    "intensity": 0.6,
+    "enabled": false
+  }
+],
+  "objects": [
+    {
+      "obj": "../assets/Modelos3D/Suzanne.obj",
+      "position": [-1.5, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.3, 0.3, 0.3],
+      "animation": {
+      "enabled": true,
+      "type": "circle",
+      "center": [0, 0, 0],
+      "radius": 1.5,
+      "speed": 1.0
+      }
+    },
+    {
+      "obj": "../assets/Modelos3D/SuzanneSubdiv1.obj",
+      "position": [1.5, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": [0.5, 0.5, 0.5]
+    }
+  ]
+}

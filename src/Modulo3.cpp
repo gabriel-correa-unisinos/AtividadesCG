@@ -126,7 +126,7 @@ int main()
 
     glEnable(GL_DEPTH_TEST);
 
-    mesh.textureID = loadTexture("../assets/Modelos3D/Suzanne.png");
+    mesh.submeshes[0].material.textureId = loadTexture("../assets/Modelos3D/Suzanne.png");
 
     cubePositions.push_back(glm::vec3(-3.0f, 0.0f, 0.0f));
     cubePositions.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
@@ -166,7 +166,7 @@ int main()
 
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-        glBindVertexArray(mesh.VAO);
+        glBindVertexArray(mesh.submeshes[0].VAO);
         glm::mat4 view = glm::translate(
             glm::mat4(1.0f),
             glm::vec3(0.0f, 0.0f, -3.0f) // "afasta" a câmera
@@ -205,13 +205,13 @@ int main()
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
             glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, mesh.textureID);
+            glBindTexture(GL_TEXTURE_2D, mesh.submeshes[0].material.textureId);
 
             glUniform1i(
                 glGetUniformLocation(shaderID, "diffuseTexture"),
                 0);
 
-            glDrawArrays(GL_TRIANGLES, 0, mesh.nVertices);
+            glDrawArrays(GL_TRIANGLES, 0, mesh.submeshes[0].nVertices);
             glDrawArrays(GL_POINTS, 0, 36);
         }
         glBindVertexArray(0);
@@ -220,7 +220,7 @@ int main()
         glfwSwapBuffers(window);
     }
     // Pede pra OpenGL desalocar os buffers
-    glDeleteVertexArrays(1, &mesh.VAO);
+    glDeleteVertexArrays(1, &mesh.submeshes[0].VAO);
     // Finaliza a execução da GLFW, limpando os recursos alocados por ela
     glfwTerminate();
     return 0;
