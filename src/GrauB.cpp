@@ -432,49 +432,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
 // 1 VBO com as coordenadas, VAO com apenas 1 ponteiro para atributo
 // A função retorna o identificador do VAO
 
-void drawTrajectory(
-    const std::vector<glm::vec3> &points,
-    GLint modelLoc,
-    const glm::vec3 &globalPosition)
-{
-    if (points.size() < 2)
-        return;
-
-    GLuint vao, vbo;
-
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        points.size() * sizeof(glm::vec3),
-        points.data(),
-        GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void *)0);
-    glEnableVertexAttribArray(0);
-
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, globalPosition);
-
-    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-
-    glLineWidth(3.0f);
-    glDrawArrays(GL_LINE_LOOP, 0, points.size());
-
-    glPointSize(8.0f);
-    glDrawArrays(GL_POINTS, 0, points.size());
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-
-    glDeleteBuffers(1, &vbo);
-    glDeleteVertexArrays(1, &vao);
-}
-
 GLuint compilaShader(const char *source, GLenum type)
 {
     GLuint shader = glCreateShader(type);
