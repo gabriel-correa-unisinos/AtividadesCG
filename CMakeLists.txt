@@ -22,8 +22,12 @@ FetchContent_Declare(
   GIT_TAG master  # Define a versão desejada da GLM
 )
 
-# Faz o download e compila as bibliotecas
-FetchContent_MakeAvailable(glfw glm)
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+)
+
 
 # Configura o FetchContent para baixar a stb_image automaticamente
 FetchContent_Declare(
@@ -32,7 +36,8 @@ FetchContent_Declare(
   GIT_TAG master
 )
 
-FetchContent_MakeAvailable(stb_image)
+# Faz o download e compila as bibliotecas
+FetchContent_MakeAvailable(glfw glm nlohmann_json stb_image)
 
 # Adiciona as pastas de cabeçalhos
 include_directories(${CMAKE_SOURCE_DIR}/include)
