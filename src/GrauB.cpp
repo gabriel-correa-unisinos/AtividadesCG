@@ -28,14 +28,6 @@ using namespace std;
 #include "utils/SceneTypes.hpp"
 #include "utils/LoadScene.hpp"
 
-struct Trajectory
-{
-    std::vector<glm::vec3> controlPoints;
-    int currentPoint = 0;
-    float speed = 1.5f;
-    bool enabled = true;
-};
-
 struct Light
 {
     glm::vec3 position;
